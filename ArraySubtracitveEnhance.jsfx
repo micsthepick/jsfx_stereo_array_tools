@@ -1,0 +1,112 @@
+desc:Subtractive enhancer with stereo delay (for microphone arrays)
+
+import cookdsp.jsfx-inc
+import st-oversampler.jsfx-inc
+
+slider1:mm=80<1,500,0.1>distance between microphones (mm)
+slider2:amount=-1<-40,0,0.01>Delay Level (db)
+slider3:os=0<0,3,1{1x (none), 2x, 4x, 8x}>Oversampling
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+@init
+MAXDELAY = 2000;
+sample_index = 0;
+delay_L = memalloc(MAXDELAY);
+delay_R = memalloc(MAXDELAY);
+// plus one so that the sum of squares adds to 1
+// (determined experimentally)
+freembuf(__memory_next);
+pdc_delay = (os == 0 ? 0 : os == 1 ? 9 : os == 2 ? 13 : os == 3 ? 15);
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+
+
+@slider
+osfactor = 2^(max(0, os)|0);
+adjusted_srate = srate*osfactor;
+// recpirocal of speed of sound is approximately 343 m/s or 343000 mm/s
+delay = 0|max(1, min(adjusted_srate/343000*mm, MAXDELAY));
+mult = 10^(amount/20);
+pdc_delay = (os == 0 ? 0 : os == 1 ? 9 : os == 2 ? 13 : os == 3 ? 15);
+
+
+@sample
+function process(s1, s2, b1, b2) (
+  s1_delayed = b1[sample_index];
+  s2_delayed = b2[sample_index];
+  
+  b1[sample_index] = s1;
+  b2[sample_index] = s2;
+  
+  out1 = s1 - s2_delayed*mult;
+  out2 = s2 - s1_delayed*mult;
+  
+  sample_index += 1;
+  sample_index %= delay;
+);
+
+function process2(s1, s2, b1, b2) (
+  os2_1.os_up2(s1);
+  os2_2.os_up2(s2);
+  process(os2_1.y1, os2_2.y1, b1, b2);
+  os2_1.y1 = out1;
+  os2_2.y1 = out2;
+  process(os2_1.y0, os2_2.y0, b1, b2);
+  os2_1.y0 = out1;
+  os2_2.y0 = out2;
+  out1 = os2_1.os_down2();
+  out2 = os2_2.os_down2();
+);
+
+function process4(s1, s2, b1, b2) (
+  os4_1.os_up2(s1);
+  os4_2.os_up2(s2);
+  process2(os4_1.y1, os4_2.y1, b1, b2);
+  os4_1.y1 = out1;
+  os4_2.y1 = out2;
+  process2(os4_1.y0, os4_2.y0, b1, b2);
+  os4_1.y0 = out1;
+  os4_2.y0 = out2;
+  out1 = os4_1.os_down2();
+  out2 = os4_2.os_down2();
+);
+
+function process8(s1, s2, b1, b2) (
+  os8_1.os_up2(s1);
+  os8_2.os_up2(s2);
+  process4(os8_1.y1, os8_2.y1, b1, b2);
+  os8_1.y1 = out1;
+  os8_2.y1 = out2;
+  process4(os8_1.y0, os8_2.y0, b1, b2);
+  os8_1.y0 = out1;
+  os8_2.y0 = out2;
+  out1 = os8_1.os_down2();
+  out2 = os8_2.os_down2();
+);
+
+os == 0 ? (
+  process(spl0, spl1, delay_L, delay_R);
+  spl0 = out1*osfactor;
+  spl1 = out2*osfactor;
+) : os == 1 ?
+(
+  process2(spl0, spl1, delay_L, delay_R);
+  spl0 = out1*osfactor;
+  spl1 = out2*osfactor;
+) : os == 2 ?
+(
+  process4(spl0, spl1, delay_L, delay_R);
+  spl0 = out1*osfactor;
+  spl1 = out2*osfactor;
+) : os == 3 ?
+(
+  process8(spl0, spl1, delay_L, delay_R);
+  spl0 = out1*osfactor;
+  spl1 = out2*osfactor;
+);
+
+
