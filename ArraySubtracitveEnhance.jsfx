@@ -6,7 +6,7 @@ import cookdsp.jsfx-inc
 import st-oversampler.jsfx-inc
 
 slider1:mm=80<1,500,0.1>distance between microphones (mm)
-slider2:amount=-1<-40,0,0.01>Delay Level (db)
+slider2:amount=-6<-40,0,0.01>Delay Level (db)
 slider3:os=0<0,3,1{1x (none), 2x, 4x, 8x}>Oversampling
 
 in_pin:left input
