@@ -34,3 +34,7 @@ Finally, oversampling is provided for precise delays, each increment in oversamp
 
 ## beamforming tutorial
 I've found that combining the subtractive enhancer with the beamformer tends to give superior results than just the beamformer itself. Just make sure to put the subtractive enhancer first in the plugin chain
+
+### credits
+Thanks go to Neil Bickford for helping out with other plugins, and for the denoising algorithm used in the beamformer...  
+and Sault and Tale for the oversampling algorithm used in the stereo widener.
