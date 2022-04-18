@@ -1,4 +1,6 @@
 desc:Subtractive enhancer with stereo delay (for microphone arrays)
+// Copyright (C) 2022 Michael Pannekoek
+// License: GPL - http://www.gnu.org/licenses/gpl.html
 
 import cookdsp.jsfx-inc
 import st-oversampler.jsfx-inc
