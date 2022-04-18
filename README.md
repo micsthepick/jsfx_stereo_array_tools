@@ -4,10 +4,15 @@
 
 A brief introduction to JSFX: https://www.cockos.com/jsfx/
 
-How to install a JSFX?: 
-### reaper installation (requires reaper daw
+## How to install a JSFX 
+
+### reaper installation (requires reaper daw)
+install/open reaper, go to "Options" -> "Show Reaper Resource path". From here you can move the JSFX plugins into Effects
 
 ### reajs installation (windows/wine + any vst2 capable host)
+reajs comes with the reaplugs bundle: https://www.reaper.fm/reaplugs/
+Run the installer, and then copy the effects to %programfiles%/VstPlugins/ReaPlugs/JS/Effects
+(you might need to use %programfiles%/Steinberg/VstPlugins/ReaPlugs/JS/Effects or whatever respective directory the installer uses)
 
 ### manual reajs installation
 ReaJs_info.txt in the same directory as reajs.dll contains instructions on how to point reajs to a different directory if desired.
@@ -16,7 +21,7 @@ If/when you've done so, then just install the effects to your configured locatio
 For developers: https://www.reaper.fm/sdk/js/js.php
 
 ## oversampling with subtractive enhancer
-For oversampling to work correctly, you need to copy st-oversampler.jsfx-inc from https://stash.reaper.fm/v/26656/wuff.zip
+This plugin has dependencies - For oversampling to work correctly, you need to copy st-oversampler.jsfx-inc from https://stash.reaper.fm/v/26656/wuff.zip
 
 ## subtractive enhancer tutorial
 This plugin takes a stereo source (presumably from a stereo omni microphone array) and artificially widens it by subtracting a delayed version of both channels from each other.
