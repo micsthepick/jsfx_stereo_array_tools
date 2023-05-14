@@ -1,0 +1,107 @@
+desc:stereo omni beamforming and noise reduction for speech
+// Copyright (C) 2022 Michael Pannekoek
+// License: GPL - http://www.gnu.org/licenses/gpl.html
+
+import cookdsp.jsfx-inc
+
+slider1:k=0<0,10,0.01>Factor
+
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+@init
+SIZE = 1024;
+MidBuf = memalloc(SIZE*2);
+SideBuf = memalloc(SIZE*2);
+MidInBuf1 = memalloc(SIZE);
+MidInBuf2 = memalloc(SIZE);
+MidOutBuf1 = memalloc(SIZE);
+MidOutBuf2 = memalloc(SIZE);
+SideInBuf1 = memalloc(SIZE);
+SideInBuf2 = memalloc(SIZE);
+window_buf.buffer(SIZE+1);
+// plus one so that the sum of squares adds to 1
+// (determined experimentally)
+window_buf.buffer_window(7);
+freembuf(__memory_next);
+pdc_delay = SIZE;
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+
+
+@slider
+delay = max(1, min(delay, MAXDELAY));
+
+
+@sample
+Mid = (spl0 + spl1) * 0.5;
+Side = (spl0 - spl1);
+
+
+window_coeff_1 = window_buf.buffer_fread(tile_pos + SIZE/2);
+window_coeff_2 = window_buf.buffer_fread(tile_pos);
+
+MidInBuf1[tile_pos + SIZE/2] = window_coeff_1 * Mid;
+MidInBuf2[tile_pos] = window_coeff_2 * Mid;
+SideInBuf1[tile_pos + SIZE/2] = window_coeff_1 * Side;
+SideInBuf2[tile_pos] = window_coeff_2 * Side;
+
+out = MidOutBuf1[tile_pos + SIZE/2] * window_coeff_1 + MidOutBuf2[tile_pos] * window_coeff_2;
+
+tile_pos += 1;
+tile_pos %= SIZE/2;
+tile_pos == 0 ? (
+  i = 0;
+  loop(SIZE,
+    MidBuf[2*i] = MidInBuf1[i] / SIZE;
+    MidBuf[2*i+1] = 0;
+    
+    SideBuf[2*i] = SideInBuf1[i] / SIZE;
+    SideBuf[2*i+1] = 0;
+    i += 1;
+  );
+  
+  fft(MidBuf, SIZE);
+  //fft_permute(MidBuf, SIZE);
+  
+  fft(SideBuf, SIZE);
+  //fft_permute(SideBuf, SIZE);
+  
+  i = 0;
+  loop(SIZE,
+    yNorm = sqr(MidBuf[2*i]) + sqr(MidBuf[2*i+1]);
+    nNorm = sqr(SideBuf[2*i]) + sqr(SideBuf[2*i+1]);
+    factor = yNorm / (yNorm + k*nNorm);
+    MidBuf[2*i] *= factor;
+    MidBuf[2*i+1] *= factor;
+    i += 1;
+  );
+  
+  //fft_ipermute(MidBuf, SIZE);
+  ifft(MidBuf, SIZE);
+  
+  i = 0;
+  loop(SIZE,
+    MidOutBuf1[i] = MidBuf[2*i];
+    i += 1;
+  );
+  
+  temp = MidInBuf1;
+  MidInBuf1 = MidInBuf2;
+  MidInBuf2 = temp;
+  
+  temp = SideInBuf1;
+  SideInBuf1 = SideInBuf2;
+  SideInBuf2 = temp;
+  
+  temp = MidOutBuf1;
+  MidOutBuf1 = MidOutBuf2;
+  MidOutBuf2 = temp;
+);
+
+spl0 = out;
+spl1 = out;
+
