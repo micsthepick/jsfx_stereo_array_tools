@@ -1,0 +1,84 @@
+desc:Better Beam former (for microphone arrays)
+// Copyright (C) 2022 Michael Pannekoek
+// License: MIT
+
+import cookdsp.jsfx-inc
+
+slider1:mm=80<1,500,0.1>distance between microphones (mm)
+slider2:angle=0<-90,90,0.1>Angle (L=-90:C=0:R=90)
+slider3:delay=1<0,2000>Calculated Delay (samples)
+slider4:strength=0<-3,3,0.1>Strength
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+@init 
+MAXDELAY = 2048;
+FFTSIZE = 4096;
+OLAPS = 4;
+sample_index = 0;
+FFT_Sig_in.fftin(FFTSIZE, OLAPS);
+FFT_Noi_in.fftin(FFTSIZE, OLAPS);
+FFT_out.fftout(FFTSIZE, OLAPS);
+delay_L = memalloc(MAXDELAY);
+delay_R = memalloc(MAXDELAY);
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+pdc_delay = FFTSIZE;
+
+
+@slider
+// recpirocal of speed of sound is approximately 343 m/s or 343000 mm/s
+delay = 0|max(1, min(srate/343000*mm, MAXDELAY));
+ksq = exp(strength);
+cval = cos(angle*$pi/180);
+sval = sin(abs(angle)*$pi/180);
+
+
+
+@sample
+R = spl0 - delay_L[sample_index];
+L = spl1 - delay_R[sample_index];
+C = spl0 + spl2;
+angle < 0 ?
+(
+  s_Signal = C * cval + L * sval;
+  s_Noise = C * sval + R
+) : angle > 0 ?
+(
+  s_Signal = C * cval + R * sval;
+  s_Noise = C * sval + L;
+) : (
+  s_Signal = C;
+  s_Noise = L + R;
+);
+//s_Signal = spl0;
+
+delay_L[sample_index] = spl1;
+delay_R[sample_index] = spl2;
+  
+FFT_Sig_in.fftin_do(s_Signal);
+FFT_Noi_in.fftin_do(s_Noise);
+  
+spl0 = spl1 = FFT_out.fftout_get_output(FFT_Sig_in.count);
+
+FFT_Sig_in.ready ? (
+  i = 0;
+    loop(FFTSIZE/2,
+    s_norm = sqr(FFT_Sig_in.real[i]) + sqr(FFT_Sig_in.imag[i]);
+    n_norm = sqr(FFT_Noi_in.real[i]) + sqr(FFT_Noi_in.imag[i]);
+    w = s_norm / (s_norm + ksq * n_norm);
+    FFT_Sig_in.real[i] *= w;
+    FFT_Sig_in.imag[i] *= w;
+    i += 1;
+  );
+  FFT_out.fftout_do(FFT_Sig_in.real, FFT_Sig_in.imag);
+);
+
+
+sample_index += 1;
+sample_index %= delay;
+
+
