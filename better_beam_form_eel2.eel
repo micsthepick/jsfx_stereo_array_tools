@@ -44,7 +44,7 @@ L = delay_L[sample_index];
 R = delay_R[sample_index];
 C = spl0 + spl1;
 s_Signal = C;
-s_Noise = L + R;
+s_Noise = spl0 - spl1;
 angle < 0 ?
 (
   s_Signal -= spl0*sval;
