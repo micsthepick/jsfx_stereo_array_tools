@@ -1,0 +1,921 @@
+desc:Better Beam former (for microphone arrays)
+// Copyright (C) 2022 Michael Pannekoek
+// License: MIT
+
+slider1:80<1,500,0.1>distance between microphones (mm)
+slider2:0<-90,90,0.1>Angle (L=-90:C=0:R=90)
+//slider3:delay=1<0,2000>Calculated Delay (samples)
+slider3:0<-3,3,0.1>Strength
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+@init
+
+//@import cookdsp.jsfx-inc
+
+// memalloc.jsfx-inc
+
+/////////////////////////////////////////////////////////////////
+// Copyright (c) - 2014 - Olivier Belanger                     //
+// Permission to use, copy, modify, and/or distribute this     //
+// software for any purpose with or without fee is hereby      //
+// granted, provided that the above copyright notice and this  //
+// permission notice appear in all copies. CookDSP IS PROVIDED //
+// "AS IS", WITHOUT WARRANTY OF ANY KIND FROM THE AUTHOR.      //
+/////////////////////////////////////////////////////////////////
+
+//@init
+
+/******************************************************* 
+MEMALLOC
+========
+
+Allocate a region of the local memory buffer.
+
+Signature
+---------
+
+ret = memalloc(size [, noreinit])
+
+Description
+-----------
+
+The memalloc function reserves a region of the local
+memory buffer and returns its first index in the memory.
+The function will leave 8 memory slots between each 
+region. These slots can be used as extra spaces, as 
+needed by interpolation algorithms. 
+
+Other objects of the library that use the local memory
+buffer use this function for their space allocations, so
+it is recommended to use it every time a space in the
+local memory is needed to prevent interferences.
+
+If `noreinit` is not specified or 0, this function resets 
+all memory slots to 0.0.
+
+Arguments
+---------
+
+- *size* {int} : size, in samples, of the memory region.  
+- *noreinit* {int} : if greater than 0, the memory slots will 
+                   not be initialized to 0.0. Defaults to 0.
+
+Return
+------
+
+- *ret* {int} : first index of the buffer in the plugin's memory.
+
+Example
+-------
+
+    desc: Hand-Written Simple Delay Line
+
+    import cookdsp.jsfx-inc
+
+    slider1:0.25<0.001,0.999>Delay in seconds
+
+    @init
+    // one second stereo memory
+    buf0 = memalloc(srate);
+    buf1 = memalloc(srate);
+    // sample counter  
+    count = 0;
+
+    @sample
+    // compute delay position
+    pos = count - floor(slider1 * srate);
+    pos < 0 ? pos += srate;
+    // read memories at delay position
+    out0 = buf0[pos];
+    out1 = buf1[pos];
+    // record current samples into memories
+    buf0[count] = spl0;
+    buf1[count] = spl1;
+    // output a mix of current and delayed samples
+    spl0 = (spl0 + out0) * 0.7;
+    spl1 = (spl1 + out1) * 0.7;
+    // increment and wrap the counter
+    count = (count + 1) % srate;
+
+********************************************************/
+function memalloc(size)
+(
+    __memory_index = __memory_next + 8;
+    __memory_next = __memory_index + size;
+    memset(__memory_index, 0.0, size);
+    __memory_index;
+);
+
+function memalloc(size, noreinit)
+(
+    noreinit == 0 ? (
+        __memory_index = __memory_next + 8;
+        __memory_next = __memory_index + size;
+        memset(__memory_index, 0.0, size);
+    ) : (
+        __memory_index = __memory_next + 8;
+        __memory_next = __memory_index + size;
+    );
+    __memory_index;
+);
+
+// fftobjects.jsfx-inc
+
+// Sorensen in-place split-radix FFT for real values.
+//
+// data before process {array of doubles}:  
+// *re(0), re(1), re(2), ..., re(size-1)*
+//
+// data after process {array of doubles}:  
+// *re(0), re(1), re(2), ..., re(size/2), im(size/2-1), ..., im(1)*
+//
+// Output data is normalized by array length.
+//
+// Source:  
+// Sorensen et al: *Real-Valued Fast Fourier Transform Algorithms*, 
+// IEEE Trans. ASSP, ASSP-35, No. 6, June 1987
+//
+// Implementation in C by Toth Laszlo, 97.05.29
+// 
+// Transposed to jsfx language by Olivier Belanger 2014.06.11
+//
+// Original file can be found on musicdsp.org :
+// http://www.musicdsp.org/archive.php?classid=2#79
+///////////////////////////////////////////////////////////////////
+function realfft(data n twiddle)
+(
+    isqrt2 = 1.0 / 1.4142135623730951; // 1/sqrt(2.0)
+    n4 = n - 1;
+    nn8 = n >> 3;
+
+    // data shuffling
+    i = j = 0;
+    n2 = n/2;
+    while (i < n4) (
+        i < j ? (
+            t1 = data[j];
+            data[j] = data[i];
+            data[i] = t1;
+        );
+        k = n2;
+        while (k <= j) (
+            j -= k;
+            k = k >> 1;
+        );
+        j += k;
+        i += 1;
+    );
+  
+  // length two butterflies
+  i0 = 0;
+  id = 4;
+    while (
+        while (i0 < n4) (
+            i1 = i0 + 1;
+            t1 = data[i0];
+            data[i0] = t1 + data[i1];
+            data[i1] = t1 - data[i1];
+            i0 += id;
+        );
+        id = id << 1;
+        i0 = id - 2;
+        id = id << 1;
+        i0 < n4;
+    );
+
+    // L shaped butterflies
+    n2 = 2;
+    k = n;
+    while (k > 2) (
+        n2 = n2 << 1; // power of two from 4 to n
+        n4 = n2 >> 2;
+        n8 = n2 >> 3;
+        pas = n / n2;
+        i1 = 0;
+        id = n2 << 1;
+        while (
+            while (i1 < n) (
+                i2 = i1 + n4;
+                i3 = i2 + n4;
+                i4 = i3 + n4;
+                t1 = data[i4] + data[i3];
+                data[i4] -= data[i3];
+                data[i3] = data[i1] - t1;
+                data[i1] += t1;
+                n4 != 1 ? (
+                    i0 = i1 + n8;
+                    i2 += n8;
+                    i3 += n8;
+                    i4 += n8;
+                    t1 = (data[i3] + data[i4]) * isqrt2;
+                    t2 = (data[i3] - data[i4]) * isqrt2;
+                    data[i4] = data[i2] - t1;
+                    data[i3] = -data[i2] - t1;
+                    data[i2] = data[i0] - t2;
+                    data[i0] += t2;
+                );
+                i1 += id;
+            );
+            id = id << 1;
+            i1 = id - n2;
+            id = id << 1;
+            i1 < n;
+        );
+        j = 2;
+        while (j <= n8) (
+            pos = (j-1) * pas;
+            cc1 = twiddle[pos];
+            ss1 = twiddle[nn8+pos];
+            cc3 = twiddle[nn8*2+pos];
+            ss3 = twiddle[nn8*3+pos];
+            i = 0;
+            id = n2 << 1;
+            while (
+                while (i < n) (
+                    i1 = i + j - 1;
+                    i2 = i1 + n4;
+                    i3 = i2 + n4;
+                    i4 = i3 + n4;
+                    i5 = i + n4 - j + 1;
+                    i6 = i5 + n4;
+                    i7 = i6 + n4;
+                    i8 = i7 + n4;
+                    t1 = data[i3] * cc1 + data[i7] * ss1;
+                    t2 = data[i7] * cc1 - data[i3] * ss1;
+                    t3 = data[i4] * cc3 + data[i8] * ss3;
+                    t4 = data[i8] * cc3 - data[i4] * ss3;
+                    t5 = t1 + t3;
+                    t6 = t2 + t4;
+                    t3 = t1 - t3;
+                    t4 = t2 - t4;
+                    t2 = data[i6] + t6;
+                    data[i3] = t6 - data[i6];
+                    data[i8] = t2;
+                    t2 = data[i2] - t3;
+                    data[i7] = -data[i2] - t3;
+                    data[i4] = t2;
+                    t1 = data[i1] + t5;
+                    data[i6] = data[i1] - t5;
+                    data[i1] = t1;
+                    t1 = data[i5] + t4;
+                    data[i5] -= t4;
+                    data[i2] = t1;
+                    i += id;
+                );
+                id = id << 1;
+                i = id - n2;
+                id = id << 1;
+                i < n;
+            );
+            j += 1;
+        );
+        k = k >> 1;
+    );
+
+    // division with array length
+    norm = 1 / n;
+    i = 0;
+    loop(n, 
+        data[i] *= norm;
+        i += 1;
+    );
+);
+
+// Sorensen in-place inverse split-radix FFT for real values.
+//
+// data before process {array of doubles}:  
+// *re(0), re(1), re(2), ..., re(size/2), im(size/2-1), ..., im(1)*
+//
+// data after process {array of doubles}:  
+// *re(0), re(1), re(2), ..., re(size-1)*
+//
+// Processed data is NOT normalized by array length.
+//
+// Source:  
+// Sorensen et al: *Real-Valued Fast Fourier Transform Algorithms*, 
+// IEEE Trans. ASSP, ASSP-35, No. 6, June 1987
+//
+// Implementation in C by Toth Laszlo, 97.05.29
+//
+// Transposed to jsfx language by Olivier Belanger 2014.06.11
+//
+// Original file can be found on musicdsp.org :
+// http://www.musicdsp.org/archive.php?classid=2#79
+///////////////////////////////////////////////////////////////////
+function irealfft(data size twiddle)
+( 
+    isqrt2 = 1.0 / 1.4142135623730951; // 1/sqrt(2.0)
+    n = size;
+    nn8 = n >> 3;
+    n1 = n - 1;
+    n2 = n << 1;
+    k = n;
+    while (k > 2) (
+        id = n2;
+        n2 = n2 >> 1;
+        n4 = n2 >> 2;
+        n8 = n2 >> 3;
+        pas = n / n2;
+        i1 = 0;
+        while (
+            while (i1 < n) (
+                i2 = i1 + n4;
+                i3 = i2 + n4;
+                i4 = i3 + n4;
+                t1 = data[i1] - data[i3];
+                data[i1] += data[i3];
+                data[i2] *= 2;
+                data[i3] = t1 - 2 * data[i4];
+                data[i4] = t1 + 2 * data[i4];
+                n4 != 1 ? (
+                    i0 = i1 + n8;
+                    i2 += n8;
+                    i3 += n8;
+                    i4 += n8;
+                    t1 = (data[i2] - data[i0]) * isqrt2;
+                    t2 = (data[i4] + data[i3]) * isqrt2;
+                    data[i0] += data[i2];
+                    data[i2] = data[i4] - data[i3];
+                    data[i3] = 2 * (-t2 - t1);
+                    data[i4] = 2 * (-t2 + t1);
+                );
+                i1 += id;
+            );
+            id = id << 1;
+            i1 = id - n2;
+            id = id << 1;
+            i1 < n1
+        );
+        j = 2;
+        while (j <= n8) (
+            pos = (j-1) * pas;
+            cc1 = twiddle[pos];
+            ss1 = twiddle[nn8+pos];
+            cc3 = twiddle[nn8*2+pos];
+            ss3 = twiddle[nn8*3+pos];
+            i = 0;
+            id = n2 << 1;
+            while (
+                while (i < n) (
+                    i1 = i + j - 1;
+                    i2 = i1 + n4;
+                    i3 = i2 + n4;
+                    i4 = i3 + n4;
+                    i5 = i + n4 - j + 1;
+                    i6 = i5 + n4;
+                    i7 = i6 + n4;
+                    i8 = i7 + n4;
+                    t1 = data[i1] - data[i6];
+                    data[i1] += data[i6];
+                    t2 = data[i5] - data[i2];
+                    data[i5] += data[i2];
+                    t3 = data[i8] + data[i3];
+                    data[i6] = data[i8] - data[i3];
+                    t4 = data[i4] + data[i7];
+                    data[i2] = data[i4] - data[i7];
+                    t5 = t1 - t4;
+                    t1 += t4;
+                    t4 = t2 - t3;
+                    t2 += t3;
+                    data[i3] = t5 * cc1 + t4 * ss1;
+                    data[i7] = -t4 * cc1 + t5 * ss1;
+                    data[i4] = t1 * cc3 - t2 * ss3;
+                    data[i8] = t2 * cc3 + t1 * ss3;
+                    i += id;
+                );
+                id = id << 1;
+                i = id - n2;
+                id = id << 1;
+                i < n1;
+            );
+            j += 1;
+        );    
+        k = k >> 1;
+    );
+
+    i0 = 0;
+    id = 4;
+    while (
+        while (i0 < n1) (
+            i1 = i0 + 1;
+            t1 = data[i0];
+            data[i0] = t1 + data[i1];
+            data[i1] = t1 - data[i1];
+            i0 += id;
+        );
+        id = id << 1;
+        i0 = id - 2;
+        id = id << 1;
+        i0 < n1;
+    );
+
+    // data shuffling
+    i = j = 0;
+    n2 = n / 2;
+    while (i < n1) (
+        i < j ? (
+            t1 = data[j];
+            data[j] = data[i];
+            data[i] = t1;
+        );
+        k = n2;
+        while (k <= j) (
+            j -= k;
+            k = k >> 1;
+        );
+        j += k;
+        i += 1;
+    );
+);
+
+/******************************************************* 
+FFTIN
+=====
+
+Apply a Fast Fourier Transform analysis on an input signal.
+
+Description
+-----------
+
+The `fftin` object transforms an audio signal into its spectral
+representation. The real and imaginary part from the analysis 
+are stored in the `real` and `imag` internal arrays.
+ 
+Initializer
+-----------
+
+#### fftin(size, olaps, [window]) ####
+
+Initializes a Fast Fourier Transform algorithm. The FFT size, in
+samples, given by the `size` argument, must be a power of two.
+The `olaps` argument specifies the number of overlapping analysis.
+There will be an output analysis every `size / olaps` samples. The
+`window` argument, as an integer, gives the shape of the analysis 
+envelope (see `buffer` object for the available windows). The default 
+is a hanning window.
+ 
+Methods
+-------
+
+#### fftin_resize(size, olaps) ####
+
+Resizes internal memories of the FFT agorithm with the new `size` 
+and `olaps` factors. The corresponding `fftout` object (and every 
+processes in between) should always use the same size and number 
+of overlaps.
+
+#### fftin_set_window(window) ####
+
+Sets a new analysis window. See `buffer` object for the available 
+windows.
+
+#### fftin_do(signal) ####
+
+Processes one sample of the input `signal` and updates the `count`
+and `ready` attributes of the object. The `count` attribute should
+be used to retrieve the current resynthesized sample from a `fftout` 
+object. The `ready` attribute indicates when `real` and `imag` buffers 
+are ready to be processed.
+
+Attributes
+----------
+
+#### fftin.ready ####
+
+This attribute will have a value of 1 when a new frame (`real` 
+and  `imag` buffers) is ready to be processed. This will happen 
+every `size / olaps` samples. Otherwise, the `ready` attribute 
+holds a value of 0.
+
+#### fftin.count ####
+
+This attribute holds the current analysis sample count. It can 
+used to retrieve the current output sample from a `fftout` object.
+
+#### fftin.real ####
+
+Buffer that holds the real part of the analysis. Indexes run from 
+0 to half the FFT size.
+
+#### fftin.imag ####
+
+Buffer that holds the imaginary part of the analysis. Indexes run 
+from 0 to half the FFT size.
+
+Example
+-------
+
+    desc:FFT Randomizer
+
+    import cookdsp.jsfx-inc
+
+    // FFT parameters (only FFT Size for the example).
+    slider1:5<0,8,1{32,64,128,256,512,1024,2048,4096,8192}>FFT Size
+    // Effect's specific slider
+    slider2:10<1,100,1>How Many Bins
+
+    @init
+    size = pow(2, slider1+5);
+    // Initialize FFT with 4 overlaps and hanning window
+    fin.fftin(size, 4);
+    fout.fftout(size, 4);
+    real = memalloc(size/2);
+    imag = memalloc(size/2);
+    
+    @slider
+    size = pow(2, slider1+5);
+    // If fftsize or overlaps changed, re-initialize FFTs.
+    size != fin.size ? (
+        fin.fftin_resize(size, 4);
+        fout.fftout_resize(size, 4);
+        // Initialize effect's specific memories
+        real = memalloc(size/2);
+        imag = memalloc(size/2);
+    );
+
+    @sample
+    // Compute FFT on both channels at the same time to save space
+    fin.fftin_do((spl0 + spl1) * 0.707);
+    spl0 = spl1 = fout.fftout_get_output(fin.count);
+
+    fin.ready ? ( // New buffers ready for processing.
+        // Resets output buffers to zeros
+        memset(real, 0, size/2);
+        memset(imag, 0, size/2);
+        // Choose randomly "slider2" bins to output 
+        loop(slider2,
+            bin = rand(size/2);
+            real[bin] = fin.real[bin]; 
+            imag[bin] = fin.imag[bin];
+        );
+        // compute the inverse FFT.
+        fout.fftout_do(real, imag);
+    );
+
+********************************************************/
+// private fft window generator
+function _fft_generate_window(window)
+(
+    this.wind.buffer(this.size);
+    this.wind.buffer_window(window);
+    this.window = window;
+);
+
+// private twiddle generator function
+function _fft_generate_twiddle()
+(
+    n8 = this.size >> 3;
+    e = 2.0 * $pi / this.size;
+    a = e;
+    j = 2;
+    while (j <= n8) (
+        a3 = 3 * a;
+        this.twiddle[j-1] = cos(a);
+        this.twiddle[n8+j-1] = sin(a);
+        this.twiddle[n8*2+j-1] = cos(a3);
+        this.twiddle[n8*3+j-1] = sin(a3);
+        a = j * e;
+        j += 1;
+    );
+);
+
+// private fftin initialization function
+function _fftin_init(size, olaps, window)
+(
+    // init variables
+    this.ready = 0;
+    this.size = size;
+    this.olaps = olaps;
+    this.hsize = this.size / 2;
+    this.hopsize = this.size / this.olaps;
+    this.inputLatency = this.size - this.hopsize;
+    this.incount = this.inputLatency;
+    this.count = 0;
+    this.overcount = 0;
+    // init memories
+    this.inbuf = memalloc(this.size);
+    this.frame = memalloc(this.size);
+    this.real = memalloc(this.hsize);
+    this.imag = memalloc(this.hsize);
+    this.twiddle = memalloc(4 * (this.size >> 3));
+    this._fft_generate_window(window);
+    this._fft_generate_twiddle();
+);
+
+function fftin(size olaps window)
+(
+    this._fftin_init(size, olaps, window);
+);
+
+function fftin(size olaps)
+(
+    this._fftin_init(size, olaps, 1);
+);
+
+function fftin_resize(size olaps)
+(
+    this._fftin_init(size, olaps, this.window);
+);
+
+function fftin_set_window(window)
+(
+    this._fft_generate_window(window);
+);
+
+function fftin_do(signal)
+(
+    this.ready = 0;
+    this.count = this.incount - this.inputLatency;
+    this.inbuf[this.incount] = signal;
+    this.incount += 1;
+    this.incount >= this.size ? (
+        this.ready = 1;
+        this.incount = this.inputLatency;
+        mod_ = this.hopsize * this.overcount;
+        k_ = 0;
+        loop(this.size,
+            this.frame[(k_+mod_)%this.size] = this.inbuf[k_] * this.wind.buffer_fread(k_);
+            k_ += 1;
+        );
+        realfft(this.frame, this.size, this.twiddle);
+        this.real[0] = this.frame[0]; this.imag[0] = 0.0;
+        k_ = 1;
+        while (k_ < this.hsize) (
+            this.real[k_] = this.frame[k_]; this.imag[k_] = this.frame[this.size - k_];
+            k_ += 1;
+        );
+        k_ = 0;
+        while (k_ < this.inputLatency) (
+            this.inbuf[k_] = this.inbuf[k_ + this.hopsize];
+            k_ += 1;
+        );
+        this.overcount += 1;
+        this.overcount >= this.olaps ? this.overcount = 0;
+    );
+);
+
+/******************************************************* 
+FFTOUT
+======
+
+Apply an Inverse Fast Fourier Transform on an analysis signal.
+
+Description
+-----------
+
+The `fftout` object converts the spectral representation of a signal 
+into its temporal form (real signal). It takes a real and imaginary
+parts, coming from an FFT process, to compute the inverse FFT and 
+return the corresponding audio signal. 
+
+Initializer
+-----------
+
+#### fftout(size, olaps, [window]) ####
+
+Initializes an Inverse Fast Fourier Transform algorithm. The FFT size, 
+in samples, given by the `size` argument, must be a power of two.
+The `olaps` argument specifies the number of overlapping analysis.
+There will be a sample block outputted every `size / olaps` samples. 
+The `window` argument, as an integer, gives the shape of the analysis 
+envelope (see `buffer` object for the available windows). The default 
+is a hanning window.
+
+Methods
+-------
+
+#### fftout_resize(size, olaps) ####
+
+Resizes internal memories of the FFT agorithm with the new `size` 
+and `olaps` factors. The corresponding `fftin` object (and every 
+processes in between) should always use the same size and number 
+of overlaps.
+
+#### fftout_set_window(window) ####
+
+Sets a new analysis window. See `buffer` object for the available 
+windows.
+
+#### fftout_get_output(count) ####
+
+Use this function to retrieve the output sample, from the
+Inverse Fast Fourier Transform, at the position `count`. If
+the position comes from the `count` attribute of a `fftin` 
+object, the current output sample will be retrieved.
+
+#### fftout_do(real, imag) ####
+
+Computes an Inverse Fast Fourier Transform with the arrays
+`real` and `imag`. This function should be called only when
+the `fftin` attribute `ready` is 1.
+
+Example
+-------
+
+    desc:FFT Comb Filter
+
+    import cookdsp.jsfx-inc
+
+    // FFT parameters (only FFT Size for the example).
+    slider1:5<0,8,1{32,64,128,256,512,1024,2048,4096,8192}>FFT Size
+    // Effect's specific slider.
+    slider2:2<2,100,1>Bin Step
+
+    @init
+    size = pow(2, slider1+5);
+    // Initialize FFT with 4 overlaps and hanning window
+    fin.fftin(size, 4);
+    fout.fftout(size, 4);
+    real = memalloc(size/2);
+    imag = memalloc(size/2);
+
+    @slider
+    size = pow(2, slider1+5);
+    // If size changed, re-initialize FFTs.
+    size != fin.size ? (
+        fin.fftin_resize(size, 4);
+        fout.fftout_resize(size, 4);
+        // Initialize effect's specific memories
+        real = memalloc(size/2);
+        imag = memalloc(size/2);
+    );
+
+    @sample
+    // Compute FFT on both channels at the same time to save space
+    fin.fftin_do((spl0 + spl1) * 0.707);
+    spl0 = spl1 = fout.fftout_get_output(fin.count);
+
+    fin.ready ? ( // New buffers ready for processing.
+        k = 0;
+        while (k < size/2) (
+            // Passes the signal only for bins that are multiples of slider2 value
+            k % slider2 == 0 ? (
+                real[k] = fin.real[k]; 
+                imag[k] = fin.imag[k];
+            ) : (
+                real[k] = imag[k] = 0;
+            );
+            k += 1;
+        );
+        // compute the inverse FFT.
+        fout.fftout_do(real, imag);
+    );
+
+********************************************************/
+// private fftout initialization function
+function _fftout_init(size, olaps, window)
+(
+    // init variables
+    this.size = size;
+    this.olaps = olaps;
+    this.ampscl = 1.0 / sqrt(olaps);
+    this.hsize = this.size / 2;
+    this.hopsize = this.size / this.olaps;
+    this.overcount = 0;
+    // init memories
+    this.outbuf = memalloc(this.size);
+    this.frame = memalloc(this.size);
+    this.accum = memalloc(this.size + this.hopsize);
+    this.twiddle = memalloc(4 * (this.size >> 3));
+    this._fft_generate_window(window);
+    this._fft_generate_twiddle();
+);
+
+function fftout(size olaps window)
+(
+    this._fftout_init(size, olaps, window);
+);
+
+function fftout(size olaps)
+(
+    this._fftout_init(size, olaps, 1);
+);
+
+function fftout_resize(size olaps)
+(
+    this._fftout_init(size, olaps, this.window);
+);
+
+function fftout_set_window(window)
+(
+    this._fft_generate_window(window);
+);
+
+function fftout_get_output(count) 
+(
+    // count is fftin.count
+    this.outbuf[count];
+);
+
+// call fftout_do only when fftin.ready is true
+function fftout_do(real imag)
+(
+    mod_ = this.hopsize * this.overcount;
+    this.frame[0] = real[0]; this.frame[this.hsize] = 0.0;
+    k_ = 1;
+    while (k_ < this.hsize) (
+        this.frame[k_] = real[k_]; this.frame[this.size - k_] = imag[k_];
+        k_ += 1;
+    );
+    irealfft(this.frame, this.size, this.twiddle);
+    k_ = 0;
+    while (k_ < this.size) (
+        this.accum[k_] += this.frame[(k_+mod_)%this.size] * this.ampscl * this.wind.buffer_fread(k_);
+        k_ += 1;
+    );
+    k_ = 0;
+    while (k_ < this.hopsize) (
+        this.outbuf[k_] = this.accum[k_];
+        k_ += 1;
+    );
+    k_ = 0;
+    while (k_ < this.size) (
+         this.accum[k_] = this.accum[k_ + this.hopsize];
+        k_ += 1;
+    );
+    this.overcount += 1;
+    this.overcount >= this.olaps ? this.overcount = 0;
+);
+
+
+// main code
+
+slider1=80;
+slider2=0;
+slider3=0;
+
+MAXDELAY = 2048;
+FFTSIZE = 4096;
+OLAPS = 4;
+sample_index = 0;
+FFT_Sig_in.fftin(FFTSIZE, OLAPS);
+FFT_Noi_in.fftin(FFTSIZE, OLAPS);
+FFT_out.fftout(FFTSIZE, OLAPS);
+delay_L = memalloc(MAXDELAY);
+delay_R = memalloc(MAXDELAY);
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+pdc_delay = FFTSIZE;
+
+
+//@slider
+
+mm=slider1;
+angle=slider2;
+strength=slider3;
+// recpirocal of speed of sound is approximately 343 m/s or 343000 mm/s
+delay = 0|max(1, min(srate/343000*mm, MAXDELAY));
+ksq = exp(strength);
+cval = cos(angle*$pi/180);
+sval = sin(abs(angle)*$pi/180);
+
+
+
+@sample
+R = spl0 - delay_L[sample_index];
+L = spl1 - delay_R[sample_index];
+C = spl0 + spl2;
+angle < 0 ?
+(
+  s_Signal = C * cval + L * sval;
+  s_Noise = C * sval + R
+) : angle > 0 ?
+(
+  s_Signal = C * cval + R * sval;
+  s_Noise = C * sval + L;
+) : (
+  s_Signal = C;
+  s_Noise = L + R;
+);
+//s_Signal = spl0;
+
+delay_L[sample_index] = spl1;
+delay_R[sample_index] = spl2;
+  
+FFT_Sig_in.fftin_do(s_Signal);
+FFT_Noi_in.fftin_do(s_Noise);
+  
+spl0 = spl1 = FFT_out.fftout_get_output(FFT_Sig_in.count);
+
+FFT_Sig_in.ready ? (
+  i = 0;
+    loop(FFTSIZE/2,
+    s_norm = sqr(FFT_Sig_in.real[i]) + sqr(FFT_Sig_in.imag[i]);
+    n_norm = sqr(FFT_Noi_in.real[i]) + sqr(FFT_Noi_in.imag[i]);
+    w = s_norm / (s_norm + ksq * n_norm);
+    FFT_Sig_in.real[i] *= w;
+    FFT_Sig_in.imag[i] *= w;
+    i += 1;
+  );
+  FFT_out.fftout_do(FFT_Sig_in.real, FFT_Sig_in.imag);
+);
+
+
+sample_index += 1;
+sample_index %= delay;
+
+
