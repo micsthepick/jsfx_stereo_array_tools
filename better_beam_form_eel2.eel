@@ -45,11 +45,11 @@ R = delay_R[sample_index];
 C = spl0 + spl1;
 s_Signal = C;
 s_Noise = spl0 - spl1;
-angle < 0 ?
+angle > 0 ?
 (
   s_Signal -= spl0*sval;
   s_Noise -= (spl0 - L)*sval;
-) : angle > 0 ?
+) : angle < 0 ?
 (
   s_Signal -= spl1*sval;
   s_Noise -= (R - spl1)*sval;
