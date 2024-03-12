@@ -71,13 +71,9 @@ bufpos >= requiredSamples ?
   loop(error1 / 2,
   s_norm = sqr(inBufLeft[idx]) + sqr(inBufLeft[idx+1]);
   n_norm = sqr(inBufRight[idx]) + sqr(inBufRight[idx+1]);
-  sumR = inBufLeft[idx] + inBufRight[idx];
-  sumI = inBufLeft[idx + 1] + inBufRight[idx + 1];
-  diffR = inBufLeft[idx] - inBufRight[idx];
-  diffI = inBufLeft[idx + 1] - inBufRight[idx + 1];
   w = s_norm / (s_norm + ksq * n_norm);
-  inBufLeft[idx] *= gain;
-  inBufLeft[idx + 1] *= gain;
+  inBufLeft[idx] *= w;
+  inBufLeft[idx + 1] *= w;
   inBufRight[idx] = inBufLeft[idx];
   inBufRight[idx + 1] = inBufLeft[idx + 1];
   idx+=2);
