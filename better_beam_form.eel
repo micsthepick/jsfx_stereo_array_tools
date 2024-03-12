@@ -809,7 +809,7 @@ sval = sin(abs(angle)*$pi/180);
 @sample
 R = spl0 - delay_L[sample_index];
 L = spl1 - delay_R[sample_index];
-C = spl0 + spl2;
+C = spl0 + spl1;
 angle < 0 ?
 (
   s_Signal = C * cval + L * sval;
@@ -824,8 +824,8 @@ angle < 0 ?
 );
 //s_Signal = spl0;
 
-delay_L[sample_index] = spl1;
-delay_R[sample_index] = spl2;
+delay_L[sample_index] = spl0;
+delay_R[sample_index] = spl1;
   
 FFT_Sig_in.fftin_do(s_Signal);
 FFT_Noi_in.fftin_do(s_Noise);
