@@ -35,7 +35,7 @@ angle=slider2;
 strength_l=slider3;
 strength_h=slider4;
 // recpirocal of speed of sound is approximately 343 m/s or 343000 mm/s
-delay = 0|max(1, min(srate/343000*mm, MAXDELAY));
+delay = 0|max(1, 0.5+min(srate/343000*mm, MAXDELAY));
 cval = cos(angle*$pi/180);
 sval = sin(abs(angle)*$pi/180);
 
