@@ -51,6 +51,242 @@ function memalloc(size, noreinit)
     __memory_index;
 );
 
+// buffer.jsfx-inc
+function buffer(size)
+(
+    this.buf = memalloc(size);
+    this.size = size;
+    this.hsize = this.size * 0.5;
+    this.curval = 0.0;
+    this.buf;
+);
+
+function buffer_write(pos, signal)
+(
+    pos >= 0 && pos < this.size ? (
+        this.buf[pos] = signal;
+        this.buf[this.size] = this.buf[0];
+        this.buf[this.size+1] = this.buf[1];
+        this.buf[-1] = this.buf[this.size-1];
+    );
+);
+
+function buffer_read(pos)
+(
+    pos >= 0 && pos < this.size ? (
+        this.curval = this.buf[pos];
+    );
+    this.curval;
+);
+
+function buffer_fread(pos)
+(
+    this.curval = this.buf[pos];
+    this.curval;
+);
+
+function buffer_nread(pos)
+(
+    this.buffer_read(pos * this.size);
+);
+
+function buffer_fnread(pos)
+(
+    this.buffer_fread(pos * this.size);
+);
+
+function buffer_read2(pos)
+(
+    pos >= 0 && pos < this.size ? (
+        i_ = floor(pos);
+        this.curval = this.buf[i_] + (this.buf[i_+1] - this.buf[i_]) * (pos - i_);
+    );
+    this.curval;
+);
+
+function buffer_fread2(pos)
+(
+    i_ = floor(pos);
+    this.curval = this.buf[i_] + (this.buf[i_+1] - this.buf[i_]) * (pos - i_);
+    this.curval;
+);
+
+function buffer_nread2(pos)
+(
+    this.buffer_read2(pos * this.size);
+);
+
+function buffer_fnread2(pos)
+(
+    this.buffer_fread2(pos * this.size);
+);
+
+function buffer_read3(pos)
+(
+    pos >= 0 && pos < this.size ? (
+        i_ = floor(pos);
+        f_ = pos - i_;
+        x0_ = this.buf[i_-1]; x1_ = this.buf[i_]; 
+        x2_ = this.buf[i_+1]; x3_ = this.buf[i_+2];
+        a3_ = f_ * f_; a3_ -= 1.0; a3_ *= (1.0 / 6.0);
+        a2_ = (f_ + 1.0) * 0.5; a0_ = a2_ - 1.0;
+        a1_ = a3_ * 3.0; a2_ -= a1_; a0_ -= a3_; a1_ -= f_;
+        a0_ *= f_; a1_ *= f_; a2_ *= f_; a3_ *= f_; a1_ += 1.0;
+        this.curval = a0_*x0_ + a1_*x1_ + a2_*x2_ + a3_*x3_;
+    );
+    this.curval;
+);
+
+function buffer_fread3(pos)
+(
+    i_ = floor(pos);
+    f_ = pos - i_;
+    x0_ = this.buf[i_-1]; x1_ = this.buf[i_]; 
+    x2_ = this.buf[i_+1]; x3_ = this.buf[i_+2];
+    a3_ = f_ * f_; a3_ -= 1.0; a3_ *= (1.0 / 6.0);
+    a2_ = (f_ + 1.0) * 0.5; a0_ = a2_ - 1.0;
+    a1_ = a3_ * 3.0; a2_ -= a1_; a0_ -= a3_; a1_ -= f_;
+    a0_ *= f_; a1_ *= f_; a2_ *= f_; a3_ *= f_; a1_ += 1.0;
+    this.curval = a0_*x0_ + a1_*x1_ + a2_*x2_ + a3_*x3_;
+    this.curval;
+);
+
+function buffer_nread3(pos)
+(
+    this.buffer_read3(pos * this.size);
+);
+
+function buffer_fnread3(pos)
+(
+    this.buffer_fread3(pos * this.size);
+);
+
+function buffer_lookup(pos)
+(
+    pos *= (this.hsize - 1);
+    pos += this.hsize;
+    this.buffer_fread(pos);
+);
+
+function buffer_lookup2(pos)
+(
+    pos *= (this.hsize - 1);
+    pos += this.hsize;
+    this.buffer_fread2(pos);
+);
+
+function buffer_lookup3(pos)
+(
+    pos *= (this.hsize - 2);
+    pos += this.hsize;
+    this.buffer_fread3(pos);
+);
+
+function buffer_window(which)
+(
+    // defaults to hanning
+    which < 0 || which > 8 ? which = 1;
+    which == 0 ? ( // hamming
+        arg_ = 2.0 * $pi / (this.size-1);
+        i_ = 0;
+        loop(this.size,
+            this.buf[i_] = 0.54 - 0.46 * cos(arg_ * i_);
+            i_ += 1;
+        );
+    ) :
+    which == 1 ? ( // hanning
+        arg_ = 2.0 * $pi / (this.size-1);
+        i_ = 0;
+        loop(this.size,
+            this.buf[i_] = 0.5 - 0.5 * cos(arg_ * i_);
+            i_ += 1;
+        );
+    ) :
+    which == 2 ? ( // bartlett
+        arg_ = 2.0 / (this.size-1);
+        hsize_ = floor((this.size-1)/2);
+        i_ = 0;
+        loop(hsize_,
+            this.buf[i_] = i_ * arg_;
+            i_ += 1;
+        );
+        loop(this.size - hsize_,
+            this.buf[i_] = 2.0 - i_ * arg_;
+            i_ += 1;
+        );
+    ) :
+    which == 3 ? ( // blackman
+        arg_ = 2.0 * $pi / (this.size-1);
+        i_ = 0;
+        loop(this.size,
+            this.buf[i_] = 0.42323 - 0.49755 * cos(arg_*i_) + 0.07922 * cos(2*arg_*i_);
+            i_ += 1;
+        );
+    ) :
+    which == 4 ? ( // blackman_harris_4
+        arg_ = 2.0 * $pi / (this.size-1);
+        i_ = 0;
+        loop(this.size,
+            this.buf[i_] = 0.35875 - 0.48829 * cos(arg_*i_) + 0.14128 * cos(2*arg_*i_) - 0.01168 * cos(3*arg_*i_);
+            i_ += 1;
+        );
+    ) :
+    which == 5 ? ( // blackman_harris_7
+        arg_ = 2.0 * $pi / (this.size-1);
+        i_ = 0;
+        loop(this.size,
+            this.buf[i_] = 0.2712203606 - 0.4334446123 * cos(arg_*i_) + 0.21800412 * cos(2*arg_*i_) - 0.0657853433 * cos(3*arg_*i_) + 0.0107618673 * cos(4*arg_*i_) - 0.0007700127 * cos(5*arg_*i_) + 0.00001368088 * cos(6*arg_*i_);
+            i_ += 1;
+        );
+    ) :
+    which == 6 ? ( // tuckey 50%
+        i_ = 0;
+        step_ = floor(0.5 * this.size / 2);
+        loop(step_,
+            this.buf[i_] = 0.5 * (1 + cos($pi * (2 * i_ / (0.5 * this.size) - 1)));
+            i_ += 1;
+        );
+        step_ = this.size * (1 - 0.5 / 2) - step_;
+        loop(step_,
+            this.buf[i_] = 1.0;
+            i_ += 1;
+        );
+        step_ = this.size - step_;
+        loop(step_,
+            this.buf[i_] = 0.5 * (1 + cos($pi * (2 * i_ / (0.5 * this.size) - 2 / 0.5 + 1)));
+            i_ += 1;
+        );
+    ) :
+    which == 7 ? ( // halfsine
+        arg_ = $pi / (this.size-1);
+        i_ = 0;
+        loop(this.size,
+            this.buf[i_] = sin(arg_ * i_);
+            i_ += 1;
+        );
+    ) :
+    which == 8 ? ( // parabolic
+        size1_ = this.size - 1;
+        rdur_ = 1 / size1_;
+        rdur2_ = rdur_ * rdur_;
+        level_ = 0;
+        slope_ = 4 * (rdur_ - rdur2_);
+        curve_ = -8 * rdur2_;
+
+        i_ = 0;
+        loop(size1_,
+            this.buf[i_] = level_;
+            level_ += slope_;
+            slope_ += curve_;
+            i_ += 1;
+        );
+        this.buf[size1_] = this.buf[0];
+    );
+    this.buf[this.size] = this.buf[0];
+    this.buf[this.size+1] = this.buf[1];
+    this.buf[-1] = this.buf[this.size-1];
+);
+
 // fftobjects.jsfx-inc
 
 // Sorensen in-place split-radix FFT for real values.
