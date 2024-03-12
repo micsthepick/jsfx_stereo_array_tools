@@ -1,12 +1,12 @@
 desc: beamforming
 
-slider1:80<1,500,0.1>distance between microphones (mm)
+slider1:160<1,500,0.1>distance between microphones (mm)
 slider2:0<-90,90,0.1>Angle (L=-90:C=0:R=90)
 slider3:0<-10,10,0.1>Strength at low freq
 slider3:0<-10,10,0.1>Strength at high freq
 
 @init
-slider1=80;
+slider1=160;
 slider2=0;
 slider3=0;
 slider4=0;
@@ -40,24 +40,26 @@ cval = cos(angle*$pi/180);
 sval = sin(abs(angle)*$pi/180);
 
 @sample
-R = spl0 - delay_L[sample_index];
-L = spl1 - delay_R[sample_index];
-C = spl0 + spl2;
+L = delay_L[sample_index];
+R = delay_R[sample_index];
+C = spl0 + spl1;
+s_Signal = C;
+s_Noise = L + R;
 angle < 0 ?
 (
-  s_Signal = C * cval + L * sval;
-  s_Noise = C * sval + R
+  s_Signal -= spl0*sval;
+  s_Noise -= (spl0 - L)*sval;
 ) : angle > 0 ?
 (
-  s_Signal = C * cval + R * sval;
-  s_Noise = C * sval + L;
-) : (
-  s_Signal = C;
-  s_Noise = L + R;
+  s_Signal -= spl1*sval;
+  s_Noise -= (R - spl1)*sval;
 );
 
 delay_L[sample_index] = spl0;
 delay_R[sample_index] = spl1;
+
+sample_index += 1;
+sample_index %= delay;
 
 inBufLeft[bufpos] = s_Signal;
 spl0 = outBufLeft[bufpos];
